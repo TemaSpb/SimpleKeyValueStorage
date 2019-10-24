@@ -44,10 +44,6 @@ type DeleteCommand struct {
 	Conn net.Conn
 }
 
-type Command interface {
-	run() error
-}
-
 type ValueWithExpireDate struct {
 	Value      string
 	ExpireDate time.Time
@@ -94,17 +90,23 @@ func main() {
 }
 
 func removeExpiredKeys() {
+	// If priority queue isn't empty and value with min expire date is expired, then remove this value
 	for pq.Len() > 0 && pq.getMin().expireDate.Before(time.Now()) {
 		item := heap.Pop(&pq).(*Item)
-		log.Printf("Key %s is expired", item.value)
+		valueFromMap, ok := storage[item.value]
+		// Check is expire date for values in storage and priority queue are the same
+		// It's necessary for case when user update value for already existing key
+		if ok && valueFromMap.ExpireDate.Equal(item.expireDate) {
+			delete(storage, item.value)
+		}
 	}
 }
 
+// Just iterate over map, create new Items and add them to the priority queue
 func initializePriorityQueue() {
-	pq := make(PriorityQueue, len(storage))
+	pq = make(PriorityQueue, len(storage))
 	i := 0
 	for key, value := range storage {
-		log.Println(i)
 		pq[i] = &Item{
 			value:      key,
 			expireDate: value.ExpireDate,
@@ -247,8 +249,11 @@ func (g *DeleteCommand) run() {
 func read(key string) (string, bool) {
 	lock.RLock()
 	defer lock.RUnlock()
+
 	record, ok := storage[key]
 	if ok {
+		// Check is this key expired or not
+		// May by specific scheduler func not remove this key yet, but it's already expired
 		if record.ExpireDate.Before(time.Now()) {
 			delete(storage, key)
 			log.Printf("Key %s is expired", key)
@@ -262,17 +267,14 @@ func read(key string) (string, bool) {
 func write(key, value string, lifetime int) {
 	lock.Lock()
 	defer lock.Unlock()
+
 	expireDate := time.Now().Add(time.Second * time.Duration(lifetime))
 	item := &Item{
 		value:      key,
 		expireDate: expireDate,
 	}
-	_, ok := storage[key]
-	if ok {
-		pq.update(item, expireDate)
-	} else {
-		heap.Push(&pq, item)
-	}
+	heap.Push(&pq, item)
+
 	storage[key] = ValueWithExpireDate{
 		Value:      value,
 		ExpireDate: expireDate,
@@ -283,6 +285,7 @@ func write(key, value string, lifetime int) {
 func remove(key string) {
 	lock.Lock()
 	defer lock.Unlock()
+
 	delete(storage, key)
 }
 

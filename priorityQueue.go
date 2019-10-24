@@ -2,7 +2,6 @@ package main
 
 import (
 	"container/heap"
-	"log"
 	"time"
 )
 
@@ -46,7 +45,6 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 func (pq *PriorityQueue) getMin() Item {
-	log.Println(*pq)
 	return *(*pq)[0]
 }
 
