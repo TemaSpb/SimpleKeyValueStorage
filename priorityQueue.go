@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"container/heap"
+	"log"
+	"time"
+)
 
 // An Item is something we manage in a priority queue.
 type Item struct {
@@ -42,6 +46,11 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 func (pq *PriorityQueue) getMin() Item {
-	n := len(*pq)
-	return *(*pq)[n-1]
+	log.Println(*pq)
+	return *(*pq)[0]
+}
+
+func (pq *PriorityQueue) update(item *Item, expireDate time.Time) {
+	item.expireDate = expireDate
+	heap.Fix(pq, item.index)
 }

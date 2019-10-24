@@ -94,10 +94,6 @@ func main() {
 }
 
 func removeExpiredKeys() {
-	if pq.Len() > 0 {
-		log.Println(pq.getMin().expireDate)
-		log.Println(time.Now())
-	}
 	for pq.Len() > 0 && pq.getMin().expireDate.Before(time.Now()) {
 		item := heap.Pop(&pq).(*Item)
 		log.Printf("Key %s is expired", item.value)
@@ -108,6 +104,7 @@ func initializePriorityQueue() {
 	pq := make(PriorityQueue, len(storage))
 	i := 0
 	for key, value := range storage {
+		log.Println(i)
 		pq[i] = &Item{
 			value:      key,
 			expireDate: value.ExpireDate,
@@ -156,10 +153,10 @@ func removeExpiredKeysScheduler(ticker time.Ticker) {
 
 func saveStorage(ticker time.Ticker) {
 	for {
-		_ = <-ticker.C
+		t := <-ticker.C
 		ok := writeJSON()
 		if ok {
-			//log.Println("Saved current state of storage", t)
+			log.Println("Saved current state of storage", t)
 		}
 	}
 }
@@ -266,16 +263,21 @@ func write(key, value string, lifetime int) {
 	lock.Lock()
 	defer lock.Unlock()
 	expireDate := time.Now().Add(time.Second * time.Duration(lifetime))
-	log.Println("Expire date ", expireDate)
-	storage[key] = ValueWithExpireDate{
-		Value:      value,
-		ExpireDate: expireDate,
-	}
 	item := &Item{
 		value:      key,
 		expireDate: expireDate,
 	}
-	heap.Push(&pq, item)
+	_, ok := storage[key]
+	if ok {
+		pq.update(item, expireDate)
+	} else {
+		heap.Push(&pq, item)
+	}
+	storage[key] = ValueWithExpireDate{
+		Value:      value,
+		ExpireDate: expireDate,
+	}
+
 }
 
 func remove(key string) {
