@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"strings"
 )
 
 func main() {
@@ -13,7 +16,18 @@ func main() {
 		log.Fatal("Connection error", err)
 	}
 
-	conn.Write([]byte("READ asd\n\r"))
-	conn.Close()
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print(">> ")
+		text, _ := reader.ReadString('\n')
+		fmt.Fprintf(conn, text+"\n")
+
+		message, _ := bufio.NewReader(conn).ReadString('\n')
+		fmt.Print("->: " + message)
+		if strings.TrimSpace(string(text)) == "STOP" {
+			fmt.Println("TCP client exiting...")
+			return
+		}
+	}
 	fmt.Println("done")
 }
