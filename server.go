@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"container/heap"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -54,6 +55,7 @@ type ValueWithExpireDate struct {
 
 var storage map[string]ValueWithExpireDate
 var lock = sync.RWMutex{}
+var pq PriorityQueue
 
 func main() {
 	log.SetOutput(os.Stdout)
@@ -63,15 +65,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	ticker := time.NewTicker(10 * time.Second)
-
 	if _, err := os.Stat(FileName); err == nil {
 		storage = readJSON()
 	} else {
 		storage = make(map[string]ValueWithExpireDate)
 	}
 
-	go saveStorage(*ticker)
+	initializePriorityQueue()
+
+	tickerForSaving := time.NewTicker(30 * time.Second)
+	tickerForKeyExpiration := time.NewTicker(10 * time.Second)
+
+	go saveStorage(*tickerForSaving)
+	go removeExpiredKeysScheduler(*tickerForKeyExpiration)
 
 	defer ln.Close()
 	defer writeJSON()
@@ -87,18 +93,46 @@ func main() {
 	}
 }
 
-func writeJSON() {
+func removeExpiredKeys() {
+	if pq.Len() > 0 {
+		log.Println(pq.getMin().expireDate)
+		log.Println(time.Now())
+	}
+	for pq.Len() > 0 && pq.getMin().expireDate.Before(time.Now()) {
+		item := heap.Pop(&pq).(*Item)
+		log.Printf("Key %s is expired", item.value)
+	}
+}
+
+func initializePriorityQueue() {
+	pq := make(PriorityQueue, len(storage))
+	i := 0
+	for key, value := range storage {
+		pq[i] = &Item{
+			value:      key,
+			expireDate: value.ExpireDate,
+			index:      i,
+		}
+		i++
+	}
+	heap.Init(&pq)
+}
+
+func writeJSON() bool {
 	if len(storage) == 0 {
-		return
+		return false
 	}
 	jsonData, err := json.Marshal(storage)
 	if err != nil {
 		log.Println("Can't marshal storage", err)
+		return false
 	}
 	err = ioutil.WriteFile(FileName, jsonData, 0644)
 	if err != nil {
 		log.Println("Can't save storage", err)
+		return false
 	}
+	return true
 }
 
 func readJSON() map[string]ValueWithExpireDate {
@@ -113,11 +147,20 @@ func readJSON() map[string]ValueWithExpireDate {
 	return data
 }
 
+func removeExpiredKeysScheduler(ticker time.Ticker) {
+	for {
+		_ = <-ticker.C
+		removeExpiredKeys()
+	}
+}
+
 func saveStorage(ticker time.Ticker) {
 	for {
-		t := <-ticker.C
-		writeJSON()
-		log.Println("Saved current state of storage", t)
+		_ = <-ticker.C
+		ok := writeJSON()
+		if ok {
+			//log.Println("Saved current state of storage", t)
+		}
 	}
 }
 
@@ -222,10 +265,17 @@ func read(key string) (string, bool) {
 func write(key, value string, lifetime int) {
 	lock.Lock()
 	defer lock.Unlock()
+	expireDate := time.Now().Add(time.Second * time.Duration(lifetime))
+	log.Println("Expire date ", expireDate)
 	storage[key] = ValueWithExpireDate{
 		Value:      value,
-		ExpireDate: time.Now().Add(time.Second * time.Duration(lifetime)),
+		ExpireDate: expireDate,
 	}
+	item := &Item{
+		value:      key,
+		expireDate: expireDate,
+	}
+	heap.Push(&pq, item)
 }
 
 func remove(key string) {
